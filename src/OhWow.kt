@@ -43,7 +43,7 @@ class OhWow{
 
 		panel.addComponent(EmptySpace(TerminalSize(0,1)))
 		panel.addComponent(EmptySpace(TerminalSize(0,1)))
-		panel.addComponent(EmptySpace(TerminalSize(0,1)))
+		panel.addComponent(Button("Exit", { System.exit(0) }))
 		panel.addComponent(Button("OK", { buttonorsomething(ipbox.text, portbox.text) }))
 
 		okno = BasicWindow()
