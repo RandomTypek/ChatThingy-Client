@@ -1,6 +1,8 @@
 import com.googlecode.lanterna.TerminalSize
 import com.googlecode.lanterna.TextColor
 import com.googlecode.lanterna.gui2.*
+import com.googlecode.lanterna.gui2.dialogs.MessageDialog
+import com.googlecode.lanterna.gui2.table.Table
 import com.googlecode.lanterna.screen.TerminalScreen
 import com.googlecode.lanterna.terminal.DefaultTerminalFactory
 import java.io.BufferedReader
@@ -8,98 +10,171 @@ import java.io.InputStreamReader
 import java.io.PrintWriter
 import java.net.Socket
 import java.util.Arrays.asList
+import kotlin.concurrent.thread
 
 class OhWow{
-	var okno : BasicWindow
-	var okno2 : BasicWindow
-	var okno3 : BasicWindow
-	var finalgui : MultiWindowTextGUI
-	lateinit var echoSocket : Socket
-	lateinit var toServer : PrintWriter
-	lateinit var fromServer : BufferedReader
+	private var okno : BasicWindow
+	private var okno2 : BasicWindow
+	private var okno3 : BasicWindow
+	private var chatbox : Table<String>
+	private lateinit var finalgui : MultiWindowTextGUI
+	private lateinit var nickname : String
+	private lateinit var echoSocket : Socket
+	private lateinit var toServer : PrintWriter
+	private lateinit var fromServer : BufferedReader
 	init {
-		var gui = DefaultTerminalFactory().createTerminal()
-		var screen = TerminalScreen(gui)
+		val gui = DefaultTerminalFactory().createTerminal()
+		val screen = TerminalScreen(gui)
 		screen.startScreen()
 
-		var panel = Panel()
-		panel.setLayoutManager(GridLayout(2))
+		val panel = Panel()
+		panel.layoutManager = GridLayout(2)
 
 		panel.addComponent(Label("IP Adresa:"))
-		var ipbox = TextBox()
+		val ipbox = TextBox()
 		panel.addComponent(ipbox)
 
+		panel.addComponent(EmptySpace(TerminalSize(0,1)))
+		panel.addComponent(EmptySpace(TerminalSize(0,1)))
+
 		panel.addComponent(Label("Port:"))
-		var portbox = TextBox()
+		val portbox = TextBox()
 		panel.addComponent(portbox)
 
-		panel.addComponent(EmptySpace(TerminalSize(0,0)))
-		panel.addComponent(Button("OK", { buttonorsomething(ipbox.text, portbox.text.toInt()) }))
+		panel.addComponent(EmptySpace(TerminalSize(0,1)))
+		panel.addComponent(EmptySpace(TerminalSize(0,1)))
+		panel.addComponent(EmptySpace(TerminalSize(0,1)))
+		panel.addComponent(Button("OK", { buttonorsomething(ipbox.text, portbox.text) }))
 
 		okno = BasicWindow()
 		okno.component = panel
 		okno.setHints(asList(Window.Hint.CENTERED))
 
 		//Druhé okno
-		var panel2 = Panel()
-		panel2.setLayoutManager(GridLayout(2))
+		val panel2 = Panel()
+		panel2.layoutManager = GridLayout(2)
 
 		panel2.addComponent(Label("Nickname:"))
-		var nickbox = TextBox()
+		val nickbox = TextBox()
 		panel2.addComponent(nickbox)
 
 		panel2.addComponent(EmptySpace(TerminalSize(0,0)))
-		panel2.addComponent(Button("OK", { chat(nickbox.text) }))
+		panel2.addComponent(Button("OK", {
+			nickname = nickbox.text
+			chat(nickbox.text)
+		}))
 
 		okno2 = BasicWindow()
 		okno2.component = panel2
 		okno2.setHints(asList(Window.Hint.CENTERED))
 
 		//Tretie okno
-		var panel3 = Panel()
-		panel3.setLayoutManager(GridLayout(1))
+		val panel3 = Panel()
+		panel3.layoutManager = GridLayout(1)
 
-		var chatbox = TextBox(TerminalSize(80, 10))
+		chatbox = Table("Chat")
+		chatbox.size = TerminalSize(50,10)
+		chatbox.isEnabled = false
+
+		for(i in 0..10){
+			chatbox.tableModel.addRow("")
+		}
+
 		panel3.addComponent(chatbox)
 
-		panel3.addComponent(EmptySpace(TerminalSize(0,8)))
+		panel3.addComponent(EmptySpace(TerminalSize(0,1)))
 
-		var chatboxsend = TextBox(TerminalSize(80,1))
+		val chatboxsend = TextBox(TerminalSize(50,1))
 		panel3.addComponent(chatboxsend)
 
-		panel3.addComponent(Button("Send", { sendText(chatboxsend.text) }))
+		panel3.addComponent(Button("Send", {
+			if (chatboxsend.text != "/disconnect" && chatboxsend.text != "/getnickname") {
+				sendText(chatboxsend.text)
+			}else{
+				MessageDialog.showMessageDialog(finalgui, "Error", "plz dont")
+			}
+			chatboxsend.text = ""
+		}))
+
+		panel3.addComponent(Button("Disconnect", {
+			disconnect()
+		}))
 
 		okno3 = BasicWindow()
 		okno3.component = panel3
-		okno3.setHints(asList(Window.Hint.FULL_SCREEN))
-
+		okno3.setHints(asList(Window.Hint.CENTERED))
 
 		finalgui = MultiWindowTextGUI(screen, DefaultWindowManager(), EmptySpace(TextColor.ANSI.BLUE))
 		finalgui.addWindowAndWait(okno)
 	}
 
-	fun buttonorsomething(ip : String, port : Int){
-		echoSocket = Socket(ip, port)
-		toServer = PrintWriter(echoSocket.getOutputStream(), true)
-		fromServer = BufferedReader(InputStreamReader(echoSocket.getInputStream()))
+	private fun buttonorsomething(ip : String, port : String) {
+		okno.isVisible = false
+
+		try {
+			echoSocket = Socket(ip, port.toInt())
+			toServer = PrintWriter(echoSocket.getOutputStream(), true)
+			fromServer = BufferedReader(InputStreamReader(echoSocket.getInputStream()))
+		} catch (e: Exception) {
+			MessageDialog.showMessageDialog(finalgui, "Error", "Can't connect to server:\n${e.message}")
+			okno.isVisible = true
+			return
+		}
+
+		if (fromServer.readLine() == "/getnickname") {
+			finalgui.addWindowAndWait(okno2)
+		} else {
+			MessageDialog.showMessageDialog(finalgui, "Error", "Server not ready")
+			okno.isVisible = true
+			return
+		}
 
 		okno.close()
-
-		if(fromServer.readLine().equals("well")){
-			finalgui.addWindowAndWait(okno2)
-		}
 	}
 
-	fun chat(nick : String){
+	private fun chat(nick : String){
 		okno2.close()
 		toServer.println(nick)
+
+		thread {
+			var servertext : String
+			while (true){
+				servertext = fromServer.readLine()
+				if (servertext == null){
+					break
+				} else{
+					for (line in splitLine(servertext)) {
+						addLineServer(line)
+					}
+				}
+			}
+		}
 
 		finalgui.addWindowAndWait(okno3)
 
 	}
 
-	fun sendText(text : String){
+	private fun sendText(text : String){
 		toServer.println(text)
+	}
+
+	private fun addLineServer(text : String){
+		if(chatbox.tableModel.rowCount > 9){
+			chatbox.tableModel.removeRow(0)
+		}
+
+		chatbox.tableModel.addRow(text)
+	}
+
+	private fun splitLine(text : String) : List<String>{
+		return text.chunked(50)
+	}
+
+	private fun disconnect(){
+		sendText("/disconnect")
+		okno3.close()
+		MessageDialog.showMessageDialog(finalgui, "Message", "Disconnected")
+		System.exit(0)
 	}
 }
 
